@@ -29,12 +29,16 @@ default = ["avx", "sse", "neon"]
 #
 # On wasm32, the "wasm_simd" feature enables compilation of Wasm SIMD accelerated code.
 #
+# On riscv64 Linux, "rvv" enables RVV 1.0 acceleration and requires nightly Rust.
+#
 # For all of the above features, on every platform other than the intended platform for the feature, these features do nothing, and RustFFT will behave like they are not set.
 avx = []
 sse = []
 neon = []
 fcma = []
 wasm_simd = []
+# RVV 1.0 on riscv64 Linux. Requires nightly; other platforms ignore this feature.
+rvv = []
 
 
 [dependencies]
@@ -108,4 +112,14 @@ harness = false
 [[bench]]
 name = "bench_compare_neon_fcma"
 required-features = ["fcma"]
+harness = false
+
+[[bench]]
+name = "bench_rustfft_rvv"
+required-features = ["rvv"]
+harness = false
+
+[[bench]]
+name = "bench_compare_scalar_rvv"
+required-features = ["rvv"]
 harness = false

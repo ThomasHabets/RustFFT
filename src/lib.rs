@@ -1,3 +1,8 @@
+// RVV runtime detection and per-function vector target features require nightly.
+#![cfg_attr(
+    all(target_arch = "riscv64", target_os = "linux", feature = "rvv"),
+    feature(stdarch_riscv_feature_detection, riscv_target_feature)
+)]
 // The FCMA intrinsics are still unstable, so the "fcma" feature requires a nightly compiler.
 #![cfg_attr(
     all(target_arch = "aarch64", feature = "fcma"),
@@ -15,6 +20,7 @@
 //!
 //! Additionally, there is automatic support for the Neon instruction set on AArch64,
 //! and support for WASM SIMD when compiling for WASM targets.
+//! On riscv64 Linux, the optional `rvv` feature accelerates power-of-two FFTs using RVV 1.0.
 //! On AArch64 there is also optional support for the FCMA instructions from ARMv8.3-A,
 //! see the `fcma` feature flag below.
 //!
@@ -54,7 +60,7 @@
 //! advanced users may have better insight than the planner into which algorithms are best for a specific size. See the
 //! [`algorithm`] module for a complete list of scalar algorithms implemented by RustFFT.
 //!
-//! Users should beware, however, that bypassing the planner will disable all AVX, SSE, Neon, and WASM SIMD optimizations.
+//! Users should beware, however, that bypassing the planner will disable all AVX, SSE, Neon, RVV, and WASM SIMD optimizations.
 //!
 //! ### Feature Flags
 //!
@@ -94,6 +100,15 @@
 //!     If you run your SIMD accelerated code on an unsupported platform, WebAssembly will specify a [trap](https://webassembly.github.io/spec/core/intro/overview.html#trap) leading to immediate execution cancelation.
 //!
 //!     On every platform besides WASM, this feature does nothing and RustFFT will behave like it is not set.
+//!
+//! * `rvv` (Disabled by default)
+//!
+//!     On riscv64 Linux, enables RVV 1.0 acceleration for f32 and f64 power-of-two FFTs of
+//!     length 64 and above. Requires nightly Rust. The planner detects vector support at runtime
+//!     and otherwise uses scalar algorithms; other lengths also use scalar algorithms.
+//!     No global `-C target-feature=+v` flag is needed. Vector lengths are selected at runtime.
+//!
+//!     On other platforms this feature does nothing. See [`FftPlannerRvv`].
 //!
 //! ### Normalization
 //!
@@ -305,6 +320,42 @@ pub trait Fft<T: FftNum>: Length + Direction + Sync + Send {
     /// The returned value may change from one version of RustFFT to the next.
     fn get_immutable_scratch_len(&self) -> usize;
 }
+
+// RVV is available only on riscv64 Linux; keep its planner API portable.
+#[cfg(all(target_arch = "riscv64", target_os = "linux", feature = "rvv"))]
+mod rvv;
+#[cfg(not(all(target_arch = "riscv64", target_os = "linux", feature = "rvv")))]
+mod rvv {
+    use crate::{Fft, FftDirection, FftNum};
+    use std::{marker::PhantomData, sync::Arc};
+
+    /// Plans power-of-two FFTs using RVV 1.0 on riscv64 Linux.
+    ///
+    /// Requires the nightly-only `rvv` feature and runtime vector support.
+    /// Other lengths use scalar algorithms. This stub is unavailable on this build.
+    pub struct FftPlannerRvv<T: FftNum> {
+        _phantom: PhantomData<T>,
+    }
+    impl<T: FftNum> FftPlannerRvv<T> {
+        /// Returns `Err(())` when RVV is unavailable in this build.
+        pub fn new() -> Result<Self, ()> {
+            Err(())
+        }
+        /// Plans a transform in the requested direction.
+        pub fn plan_fft(&mut self, _len: usize, _direction: FftDirection) -> Arc<dyn Fft<T>> {
+            unreachable!()
+        }
+        /// Plans a forward transform.
+        pub fn plan_fft_forward(&mut self, len: usize) -> Arc<dyn Fft<T>> {
+            self.plan_fft(len, FftDirection::Forward)
+        }
+        /// Plans an inverse transform.
+        pub fn plan_fft_inverse(&mut self, len: usize) -> Arc<dyn Fft<T>> {
+            self.plan_fft(len, FftDirection::Inverse)
+        }
+    }
+}
+pub use rvv::FftPlannerRvv;
 
 // Algorithms implemented to use AVX instructions. Only compiled on x86_64, and only compiled if the "avx" feature flag is set.
 #[cfg(all(target_arch = "x86_64", feature = "avx"))]

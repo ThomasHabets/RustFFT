@@ -34,6 +34,13 @@ For machines that do not have AVX, RustFFT also supports the SSE4.1 instruction 
 
 RustFFT supports the NEON instruction set in 64-bit Arm, AArch64. As with AVX and SSE, no special code is needed to activate NEON-accelerated code paths: Simply plan a FFT using the `FftPlanner` on an AArch64 target, and RustFFT will automatically switch to faster NEON-accelerated algorithms.
 
+### RISC-V Linux Targets
+
+The optional `rvv` feature enables RVV 1.0 acceleration on riscv64 Linux using nightly Rust.
+`FftPlanner` detects vector support at runtime, accelerates f32 and f64 power-of-two FFTs
+of length 64 and above, and uses scalar plans otherwise. See the [RVV testing and benchmark guide](docs/rvv.md)
+for Orange Pi RV2 and cross-compilation commands.
+
 ### WebAssembly Targets
 
 RustFFT supports [the fixed-width SIMD extension for WebAssembly](https://github.com/WebAssembly/spec/blob/main/proposals/simd/SIMD.md). Just like AVX, SSE, and NEON, no special code is needed to take advantage of this code path: All you need to do is plan a FFT using the `FftPlanner`.
@@ -57,6 +64,11 @@ The `neon` is enabled by default. On AArch64, this feature enables compilation o
 Disabling it reduces compile time and binary size.
 
 On other platforms than AArch64, this feature does nothing and RustFFT will behave like it is not set.
+
+### RISC-V Linux Targets
+
+The `rvv` feature is disabled by default and requires nightly Rust on riscv64 Linux.
+It has no effect on other platforms. No global vector target flags are needed.
 
 ### WebAssembly Targets
 

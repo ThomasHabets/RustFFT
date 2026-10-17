@@ -13,6 +13,7 @@ use crate::Fft;
 use crate::FftPlannerAvx;
 use crate::FftPlannerFcma;
 use crate::FftPlannerNeon;
+use crate::FftPlannerRvv;
 use crate::FftPlannerSse;
 
 use crate::math_utils::{split_cross_len, PrimeFactors};
@@ -23,6 +24,7 @@ enum ChosenFftPlanner<T: FftNum> {
     Sse(FftPlannerSse<T>),
     Fcma(FftPlannerFcma<T>),
     Neon(FftPlannerNeon<T>),
+    Rvv(FftPlannerRvv<T>),
     WasmSimd(FftPlannerWasmSimd<T>),
     // todo: If we add NEON, avx-512 etc support, add more enum variants for them here
 }
@@ -56,13 +58,14 @@ enum ChosenFftPlanner<T: FftNum> {
 /// Each FFT instance owns [`Arc`s](std::sync::Arc) to its internal data, rather than borrowing it from the planner, so it's perfectly
 /// safe to drop the planner after creating Fft instances.
 ///
-/// In the constructor, the FftPlanner will detect available CPU features. If AVX, SSE, Neon, or WASM SIMD are available, it will set itself up to plan FFTs with the fastest available instruction set.
+/// In the constructor, the FftPlanner will detect available CPU features. If AVX, SSE, Neon, RVV, or WASM SIMD are available, it will set itself up to plan FFTs with the fastest available instruction set.
 /// If no SIMD instruction sets are available, the planner will seamlessly fall back to planning non-SIMD FFTs.
 ///
 /// If you'd prefer not to compute a FFT at all if a certain SIMD instruction set isn't available, or otherwise specify your own custom fallback, RustFFT exposes dedicated planners for each instruction set:
 ///  - [`FftPlannerAvx`](crate::FftPlannerAvx)
 ///  - [`FftPlannerSse`](crate::FftPlannerSse)
 ///  - [`FftPlannerNeon`](crate::FftPlannerNeon)
+///  - [`FftPlannerRvv`](crate::FftPlannerRvv)
 ///  - [`FftPlannerWasmSimd`](crate::FftPlannerWasmSimd)
 ///
 /// If you'd prefer to opt out of SIMD algorithms, consider creating a [`FftPlannerScalar`](crate::FftPlannerScalar) instead.
@@ -88,6 +91,10 @@ impl<T: FftNum> FftPlanner<T> {
             Self {
                 chosen_planner: ChosenFftPlanner::Neon(neon_planner),
             }
+        } else if let Ok(rvv_planner) = FftPlannerRvv::new() {
+            Self {
+                chosen_planner: ChosenFftPlanner::Rvv(rvv_planner),
+            }
         } else if let Ok(wasm_simd_planner) = FftPlannerWasmSimd::new() {
             Self {
                 chosen_planner: ChosenFftPlanner::WasmSimd(wasm_simd_planner),
@@ -111,6 +118,7 @@ impl<T: FftNum> FftPlanner<T> {
             ChosenFftPlanner::Sse(sse_planner) => sse_planner.plan_fft(len, direction),
             ChosenFftPlanner::Fcma(fcma_planner) => fcma_planner.plan_fft(len, direction),
             ChosenFftPlanner::Neon(neon_planner) => neon_planner.plan_fft(len, direction),
+            ChosenFftPlanner::Rvv(rvv_planner) => rvv_planner.plan_fft(len, direction),
             ChosenFftPlanner::WasmSimd(wasm_simd_planner) => {
                 wasm_simd_planner.plan_fft(len, direction)
             }
@@ -863,5 +871,27 @@ mod unit_tests {
         is_send::<FftPlannerScalar<T>>();
         is_send::<FftPlannerSse<T>>();
         is_send::<FftPlannerAvx<T>>();
+    }
+}
+
+#[cfg(all(test, target_arch = "riscv64", target_os = "linux", feature = "rvv"))]
+mod rvv_dispatch_tests {
+    use super::*;
+    #[test]
+    fn automatic_rvv_selection() {
+        assert_eq!(
+            matches!(
+                FftPlanner::<f32>::new().chosen_planner,
+                ChosenFftPlanner::Rvv(_)
+            ),
+            std::arch::is_riscv_feature_detected!("v")
+        );
+        assert_eq!(
+            matches!(
+                FftPlanner::<f64>::new().chosen_planner,
+                ChosenFftPlanner::Rvv(_)
+            ),
+            std::arch::is_riscv_feature_detected!("v")
+        );
     }
 }

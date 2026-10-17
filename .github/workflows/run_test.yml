@@ -204,3 +204,54 @@ jobs:
           version: "latest"
       - name: Run test suites with wasm-pack
         run: wasm-pack test --node --features wasm_simd
+
+  check_riscv64_rvv:
+    name: RVV correctness (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: VLEN128
+            cpu: rv64,v=true,vlen=128,elen=64,vext_spec=v1.0
+            expect: available
+          - name: VLEN256
+            cpu: rv64,v=true,vlen=256,elen=64,vext_spec=v1.0
+            expect: available
+          - name: VLEN512
+            cpu: rv64,v=true,vlen=512,elen=64,vext_spec=v1.0
+            expect: available
+          - name: scalar-fallback
+            cpu: rv64,v=false
+            expect: unavailable
+    env:
+      CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
+      CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_RUNNER: qemu-riscv64 -L /usr/riscv64-linux-gnu
+      QEMU_CPU: ${{ matrix.cpu }}
+      RUSTFFT_RVV_TEST_EXPECT: ${{ matrix.expect }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+      - name: Install nightly with RISC-V target
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: riscv64gc-unknown-linux-gnu
+      - name: Install emulator and linker
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-linux-gnu qemu-user
+      - name: Test RVV and baseline scalar fallback
+        run: cargo test --release --target riscv64gc-unknown-linux-gnu --no-default-features --features rvv
+      - name: Compile RVV benchmarks
+        if: matrix.name == 'VLEN256'
+        run: cargo bench --no-run --target riscv64gc-unknown-linux-gnu --no-default-features --features rvv --bench bench_rustfft_rvv --bench bench_compare_scalar_rvv
+
+  check_rvv_portability:
+    name: RVV feature on non-RISC-V
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check portable planner and benchmark API
+        run: cargo check --features rvv --tests --bench bench_rustfft_rvv --bench bench_compare_scalar_rvv
+      - name: Test unavailable planner stub
+        run: cargo test --features rvv --test rvv
